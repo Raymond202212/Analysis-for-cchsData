@@ -27,7 +27,7 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
   library(sqldf) # this is for sql language
 ```
 ```{r}
-cchs <- read_csv('cchsData.csv')
+cchs <- read_csv('cchsData.csv') # Make sure that this file should in the same folder as this code!  
 analysis <- cchs %>%
   select(ccc_195, dhh_sex, dhhgage, hwtdgbmi, fsc_020, inj_005, paadvwho, smk_005, wdm_005, wdm_015)
 ```
