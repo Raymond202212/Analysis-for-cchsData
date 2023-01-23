@@ -1,0 +1,536 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+```{r}
+  library(readxl)
+  library(tidyverse)
+  library(ggstance)
+  library(lmtest)
+  library(janitor)
+  library(pROC)
+  library(epiR)
+  library(car)
+  library(ggpubr)
+  library(AICcmodavg)
+  library(broom) # This is for tidy()
+  library(sqldf) # this is for sql language
+```
+```{r}
+cchs <- read_csv('cchsData.csv')
+analysis <- cchs %>%
+  select(ccc_195, dhh_sex, dhhgage, hwtdgbmi, fsc_020, inj_005, paadvwho, smk_005, wdm_005, wdm_015)
+```
+```{r}
+# summary(analysis)
+analysis1 <- analysis
+analysis1 <- analysis1 %>%
+  mutate(depressed = ifelse(ccc_195 == 1, 1, 
+                            ifelse(ccc_195 == 2, 0, NA)))
+```
+
+
+```{r}
+# convert depressed into factor
+analysis1$depressed <- as.factor(analysis1$depressed)
+str(analysis1$depressed)
+levels(analysis1$depressed) <- c('No', 'Yes')
+# convert sex into factor
+analysis1$dhh_sex <- as.factor(analysis1$dhh_sex)
+levels(analysis1$dhh_sex) <- c('M','F')
+str(analysis1$dhh_sex)
+# convert afford to eat balanced meal into factor and clear invalid data
+analysis1 <- analysis1 %>%
+  mutate(balanced_meal_affordability = ifelse(fsc_020 == 1, 0, 
+                            ifelse(fsc_020 == 2, 0, 
+                                   ifelse(fsc_020 == 3, 1, NA))))
+analysis1$balanced_meal_affordability <- as.factor(analysis1$balanced_meal_affordability)
+str(analysis1$balanced_meal_affordability)
+levels(analysis1$balanced_meal_affordability) <-c('No&Sometimes', 'Yes')
+```
+
+
+```{r}
+# For repetitive strain injury: clear invalid data and convert into factor
+analysis1 <- analysis1 %>%
+  mutate(repetitive_strain_injury = ifelse(inj_005 == 1, 1, 
+                            ifelse(inj_005 == 2, 0, NA)))
+analysis1$repetitive_strain_injury <- as.factor(analysis1$repetitive_strain_injury)
+str(analysis1$repetitive_strain_injury)
+levels(analysis1$repetitive_strain_injury) <- c('No', 'Yes')
+```
+```{r}
+# for Physically active based on WHO guidelines
+analysis1 <- analysis1 %>%
+  mutate(who_physically_active = ifelse(paadvwho == 1, 1, 
+                            ifelse(paadvwho == 2, 2, 
+                                   ifelse(paadvwho == 3, 3, 
+                                          ifelse(paadvwho == 4, 4, NA)))))
+analysis1$who_physically_active <- as.factor(analysis1$who_physically_active)
+str(analysis1$who_physically_active)
+levels(analysis1$who_physically_active) <- c('lv1','lv2','lv3','lv4')
+```
+```{r}
+# type of smoker
+analysis1 <- analysis1 %>%
+  mutate(type_of_smoker = ifelse(smk_005 == 1, 1, 
+                            ifelse(smk_005 == 2, 1, 
+                                   ifelse(smk_005 == 3, 0, NA))))
+analysis1$type_of_smoker <- as.factor(analysis1$type_of_smoker)
+str(analysis1$type_of_smoker)
+levels(analysis1$type_of_smoker) <- c('No smoker','Daily/Occationally')
+
+```
+
+```{r}
+# Difficulty - seeing
+analysis1 <- analysis1 %>%
+  mutate(difficulty.seeing = ifelse(wdm_005 == 1, 0, 
+                            ifelse(wdm_005 == 2, 1, 
+                                   ifelse(wdm_005 == 3, 1, 
+                                          ifelse(wdm_005 == 4, 1, NA)))))
+analysis1$difficulty.seeing <- as.factor(analysis1$difficulty.seeing)
+str(analysis1$difficulty.seeing)
+levels(analysis1$difficulty.seeing) <- c('No difficulty','With some difficulty to blind')
+```
+```{r}
+# Difficulty - walking / climbing steps
+analysis1 <- analysis1 %>%
+  mutate(difficulty.climbing.steps = ifelse(wdm_015 == 1, 0, 
+                            ifelse(wdm_015 == 2, 1, 
+                                   ifelse(wdm_015 == 3, 1, 
+                                          ifelse(wdm_015 == 4, 1, NA)))))
+analysis1$difficulty.climbing.steps <- as.factor(analysis1$difficulty.climbing.steps)
+str(analysis1$difficulty.climbing.steps)
+levels(analysis1$difficulty.climbing.steps) <- c('No difficulty','With some difficulty to completely immoblized')
+```
+```{r}
+# for age
+analysis1 <- analysis1 %>%
+  mutate(age.group = ifelse(dhhgage <= 2, 1, 
+                            ifelse(dhhgage <= 5, 2, 
+                                   ifelse(dhhgage <= 7, 3, 
+                                          ifelse(dhhgage <= 9, 4, 
+                                                 ifelse(dhhgage <= 11, 5, 
+                                                        ifelse(dhhgage <= 13, 6, 
+                                                               ifelse(dhhgage <= 16, 7, NA))))))))
+analysis1$age.group <- as.factor(analysis1$age.group)
+str(analysis1$age.group)
+levels(analysis1$age.group) <- c('<18 yrs','18-29 yrs','30-39 yrs','40-49 yrs','50-59 yrs','60-69 yrs','>=70 yrs')
+```
+```{r}
+# for bmi, filterout invalid data
+analysis1$hwtdgbmi[analysis1$hwtdgbmi >58] <- NA 
+# hist(analysis1$hwtdgbmi)
+```
+
+
+
+
+```{r}
+# Final Pre-(Processing for our final analysis table
+analysis2 <- analysis1 %>%
+  select(depressed, 
+         dhh_sex, age.group, hwtdgbmi, 
+         balanced_meal_affordability, repetitive_strain_injury, who_physically_active,
+         type_of_smoker, difficulty.seeing, difficulty.climbing.steps)
+analysis3 <- na.omit(analysis2)
+# summary(analysis3) # n = 94182
+
+```
+
+```{r}
+# Nonparticipants within sample frame
+# however, the function of sqldf cannot return a correct result, so I have to turn to union
+nonparticipants <- analysis2[rowSums(is.na(analysis2)) > 0,]
+# those whose age below 18 is not in our researching scope
+nonparticipants <- nonparticipants[which(nonparticipants$age.group != '<18 yrs'), ] # n = 10454
+
+# Note that those who are under 18 are not in our scope (sample frame)
+summary(nonparticipants)
+```
+
+
+
+
+
+```{r}
+# descriptive statistics
+summary(analysis3)
+# grouped by depressed
+analysis3 %>%
+  split(.$depressed) %>%
+  map(summary)
+```
+
+
+```{r}
+# unadjusted (uni-variate analysis)
+# for gender
+lreg1 <- glm(depressed~dhh_sex, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+print(ORs1)
+```
+```{r}
+# for age.group
+lreg1 <- glm(depressed~age.group, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+```
+```{r}
+# for BMI
+lreg1 <- glm(depressed~hwtdgbmi, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+```
+```{r}
+# for balanced meal affordability
+lreg1 <- glm(depressed~balanced_meal_affordability, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+```
+
+```{r}
+# for repetitive strain injury
+lreg1 <- glm(depressed~repetitive_strain_injury, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+```
+```{r}
+# for WHO physical active level
+lreg1 <- glm(depressed~who_physically_active, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+
+```
+```{r}
+# for type of smoker
+lreg1 <- glm(depressed~type_of_smoker, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+
+```
+```{r}
+# for visual difficulty
+lreg1 <- glm(depressed~difficulty.seeing, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+```
+```{r}
+# for visual difficulty
+lreg1 <- glm(depressed~difficulty.climbing.steps, family = binomial, data = analysis3)
+summary(lreg1)
+ci1 = confint(lreg1)
+est1 = cbind(lreg1$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+```
+```{r}
+# adjusted (multivariate) analysis (non-interaction model)
+logisticRegression <- glm(depressed ~ dhh_sex + age.group + hwtdgbmi + 
+                            balanced_meal_affordability + repetitive_strain_injury + who_physically_active + type_of_smoker + difficulty.seeing + difficulty.climbing.steps
+                          ,
+                          family = binomial, data = analysis3)
+summary(logisticRegression)
+ci1 = confint(logisticRegression)
+est1 = cbind(logisticRegression$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+```
+
+```{r}
+# add predicted value to the data
+pred1 <- predict(logisticRegression, type="response")
+lreg1_f <- cbind(analysis3,pred1) # merge regression statistics with data)
+names(lreg1_f)
+```
+```{r}
+# Crudely Exploring interactions
+# interaction plot between predictive variables and gender
+
+interaction.plot(x.factor = lreg1_f$balanced_meal_affordability, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$dhh_sex, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# for repetitive strain injury
+interaction.plot(x.factor = lreg1_f$repetitive_strain_injury, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$dhh_sex, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# for physical activity level
+
+interaction.plot(x.factor = lreg1_f$who_physically_active, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$dhh_sex, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# for type of smoker
+
+interaction.plot(x.factor = lreg1_f$type_of_smoker, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$dhh_sex, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# for vision difficulty
+
+interaction.plot(x.factor = lreg1_f$difficulty.seeing, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$dhh_sex, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# for climbing steps difficulty
+
+interaction.plot(x.factor = lreg1_f$difficulty.climbing.steps, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$dhh_sex, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# The interaction is not practically significant
+```
+```{r}
+# drop remnant level
+levels(lreg1_f$age.group)
+lreg1_f$age.group <- droplevels(lreg1_f$age.group)
+levels(lreg1_f$age.group)
+```
+```{r}
+# interaction between age and predictive factors
+# balanced meal affordability
+interaction.plot(x.factor = lreg1_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$balanced_meal_affordability, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+
+interaction.plot(x.factor = lreg1_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$repetitive_strain_injury, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+interaction.plot(x.factor = lreg1_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$who_physically_active, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+
+interaction.plot(x.factor = lreg1_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$type_of_smoker, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+interaction.plot(x.factor = lreg1_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$difficulty.seeing, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# mobile difficulty
+levels(lreg1_f$difficulty.climbing.steps) <- c('No difficulty', 'With some difficulty')
+interaction.plot(x.factor = lreg1_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$difficulty.climbing.steps, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# This seems to be more obvious
+```
+```{r}
+# interaction between BMI and predictive variables
+# balanced meal affordability
+interaction.plot(x.factor = lreg1_f$hwtdgbmi, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$balanced_meal_affordability, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+
+interaction.plot(x.factor = lreg1_f$hwtdgbmi, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$repetitive_strain_injury, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+interaction.plot(x.factor = lreg1_f$hwtdgbmi, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$who_physically_active, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+
+interaction.plot(x.factor = lreg1_f$hwtdgbmi, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$type_of_smoker, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+interaction.plot(x.factor = lreg1_f$hwtdgbmi, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$difficulty.seeing, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+
+# mobile difficulty
+levels(lreg1_f$difficulty.climbing.steps) <- c('No difficulty', 'With some difficulty')
+interaction.plot(x.factor = lreg1_f$hwtdgbmi, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg1_f$difficulty.climbing.steps, 
+                 response = lreg1_f$pred1, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+# Theirs "intervals" almost paralized, so there is no significant interaction factor
+
+```
+
+```{r}
+analysis3$age.group <- droplevels(analysis3$age.group)
+levels(analysis3$difficulty.climbing.steps) <- c('No difficulty', 'With some difficulties')
+levels(analysis3$difficulty.seeing) <- c('No difficulty', 'With some difficulties')
+# adjusted (multivariate) analysis (interaction model)
+logisticRegression2 <- glm(depressed ~ dhh_sex + age.group + hwtdgbmi + 
+                            balanced_meal_affordability + repetitive_strain_injury + who_physically_active + type_of_smoker + difficulty.seeing + difficulty.climbing.steps
+                          + age.group:difficulty.seeing
+                          + age.group:difficulty.climbing.steps,
+                          family = binomial, data = analysis3)
+summary(logisticRegression2)
+ci1 = confint(logisticRegression2)
+est1 = cbind(logisticRegression2$coefficients,ci1)
+ORs1 = exp(est1)
+ORs1
+
+```
+```{r}
+# identify the meaning of who_physically active level
+a <- cchs %>%
+  select(paadvmva, paadvvol, paadvwho)
+a[which(a$paadvwho < 5), ] %>%
+  split(.$paadvwho) %>%
+  map(summary)
+# hence, the higher level, the less active
+```
+```{r}
+pred2 <- predict(logisticRegression2, type="response")
+lreg2_f <- cbind(analysis3,pred2) # merge regression statistics with data)
+names(lreg2_f)
+```
+```{r}
+interaction.plot(x.factor = lreg2_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg2_f$difficulty.seeing,
+                 response = lreg2_f$pred2, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+interaction.plot(x.factor = lreg2_f$age.group, # can be replaced by other predictive variables in the graph
+                 trace.factor = lreg2_f$difficulty.climbing.steps,
+                 response = lreg2_f$pred2, fun = median,
+                 xlab="Effort",
+                 ylab="Prediction", trace.label="Gender", 
+                 col=c("blue","red"),
+                 lty=4, lwd=2.5,)
+```
+```{r}
+# in ggplot way
+# for interaction plot between difficulty climbing steps and age group
+lreg2_f %>% 
+  group_by(age.group, difficulty.climbing.steps) %>% 
+  summarise(Predictions = mean(pred2), SD = sd(pred2)/(length(pred2)**0.5)) -> tips2
+tips2 %>% 
+  ggplot() +
+  aes(x = age.group, y = Predictions, color = difficulty.climbing.steps) +
+  geom_line(aes(group = difficulty.climbing.steps)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=Predictions - 1.96 * SD,ymax=Predictions + 1.96 * SD),width=0.1)
+
+lreg2_f %>% 
+  group_by(age.group, difficulty.seeing) %>% 
+  summarise(Predictions = mean(pred2), SD = sd(pred2)/(length(pred2)**0.5)) -> tips2
+tips2 %>% 
+  ggplot() +
+  aes(x = age.group, y = Predictions, color = difficulty.seeing) +
+  geom_line(aes(group = difficulty.seeing)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=Predictions - 1.96 * SD,ymax=Predictions + 1.96 * SD),width=0.1)
+# Combing with interaction logisitic regressional function, we can say that the interaction between age and vision disability is antagonistic, while the interaction between age and mobilization disability is valid.
+```
+
